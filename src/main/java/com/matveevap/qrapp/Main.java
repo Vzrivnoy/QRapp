@@ -87,51 +87,23 @@ public class Main extends JPanel {
     }
 
     static String dataToBinaryCode(String data, DataType typeOfData) {
-        char[] alphabeticAndDigits = new char[]{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', ' ', '$', '%', '*', '+', '-', '.', '/', ':'};
         StringBuilder binaryCode = new StringBuilder();
-        StringBuilder m;
-        String s;
-        int a = -1, b = -1;
-        if (typeOfData == DataType.BYTE) {
-            for (int i = 0; i < data.length(); i++) {
-                binaryCode.append(getUTF8Code(data.charAt(i)));
-            }
-        }
-        if (typeOfData == DataType.NUMERIC) {
-            for (int i = 0; i < data.length(); i++) {
-                if (i % 3 == 2) {
-                    s = data.substring(i - 2, i + 1);
-                    binaryCode.append(intToBinary(s));
+        switch (typeOfData) {
+            case DataType.BYTE:
+                for (char chr : data.toCharArray())
+                    binaryCode.append(getUTF8Code(chr));
+                break;
+            case DataType.NUMERIC:
+                for (int i = 0; i < data.length(); i += 3) {
+                    String chunk = data.substring(i, Math.min(i + 3, data.length()));
+                    binaryCode.append(intToBinary(chunk));
                 }
-            }
-            if (data.length() % 3 != 0) {
-                s = data.substring(data.length() - (data.length() % 3));
-                binaryCode.append(intToBinary(s));
-            }
-        }
-        if (typeOfData == DataType.ALPHANUMERIC) {
-            for (int i = 0; i < data.length(); i++) {
-                if (i % 2 == 0 && i != 0) {
-                    m = new StringBuilder(intToBinary((a * 45 + b) + ""));
-                    if (m.length() < 11) {
-                        for (int j = 0; j < 11 - m.length(); j++) {
-                            m.insert(0, "0");
-                        }
-                    }
-                    binaryCode.append(m);
-                    a = -1;
-                    b = -1;
+                break;
+            case DataType.ALPHANUMERIC:
+                for (int i = 0; i < data.length(); i += 2) {
+                    String chunk = data.substring(i, Math.min(i + 2, data.length()));
+                    binaryCode.append(AlphaNumericCodec.encodeChunk(chunk));
                 }
-                for (int j = 0; j < 45; j++) {
-                    if (data.charAt(i) == alphabeticAndDigits[j]) {
-                        if (a == -1) a = j;
-                        else b = j;
-                    }
-                }
-            }
-            if (a != -1 && b == -1) {
-                binaryCode.append(intToBinary(a + "").substring(1, 7));
-            }
         }
         return binaryCode.toString();
     }
