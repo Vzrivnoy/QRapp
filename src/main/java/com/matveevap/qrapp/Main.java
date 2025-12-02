@@ -24,7 +24,7 @@ public class Main extends JPanel {
         System.out.print(">>>");
 
         String data;
-        String typeOfData;
+        DataType typeOfData;
         String binaryData;
         String serviceFieldData;
         String finalData;
@@ -62,7 +62,7 @@ public class Main extends JPanel {
         System.out.println("\nYour QR code was successfully made!");
     }
 
-    static String typeOfData(String data) {
+    static DataType typeOfData(String data) {
         Set<Character> alphaNumericChars = Set.of(
                 '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
                 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
@@ -75,7 +75,7 @@ public class Main extends JPanel {
 
         for (char c : data.toCharArray()) {
             if (!alphaNumericChars.contains(c)) {
-                return "ByteData";
+                return DataType.BYTE;
             }
             if (!Character.isDigit(c)) {
                 hasNonDigit = true;
@@ -83,21 +83,21 @@ public class Main extends JPanel {
         }
 
         // Если дошли сюда — все символы AlphaNumeric
-        return hasNonDigit ? "AlphaNumericData" : "NumericData";
+        return hasNonDigit ? DataType.ALPHANUMERIC : DataType.NUMERIC;
     }
 
-    static String dataToBinaryCode(String data, String typeOfData) {
+    static String dataToBinaryCode(String data, DataType typeOfData) {
         char[] alphabeticAndDigits = new char[]{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', ' ', '$', '%', '*', '+', '-', '.', '/', ':'};
         StringBuilder binaryCode = new StringBuilder();
         StringBuilder m;
         String s;
         int a = -1, b = -1;
-        if (Objects.equals(typeOfData, "ByteData")) {
+        if (typeOfData == DataType.BYTE) {
             for (int i = 0; i < data.length(); i++) {
                 binaryCode.append(getUTF8Code(data.charAt(i)));
             }
         }
-        if (Objects.equals(typeOfData, "NumericData")) {
+        if (typeOfData == DataType.NUMERIC) {
             for (int i = 0; i < data.length(); i++) {
                 if (i % 3 == 2) {
                     s = data.substring(i - 2, i + 1);
@@ -109,7 +109,7 @@ public class Main extends JPanel {
                 binaryCode.append(intToBinary(s));
             }
         }
-        if (Objects.equals(typeOfData, "AlphaNumericData")) {
+        if (typeOfData == DataType.ALPHANUMERIC) {
             for (int i = 0; i < data.length(); i++) {
                 if (i % 2 == 0 && i != 0) {
                     m = new StringBuilder(intToBinary((a * 45 + b) + ""));
@@ -136,24 +136,22 @@ public class Main extends JPanel {
         return binaryCode.toString();
     }
 
-    static String getServiceFieldData(String data, String binaryData, String typeOfData) {
+    static String getServiceFieldData(String data, String binaryData, DataType typeOfData) {
         int n = 0;
 
         String fieldOfData = switch (typeOfData) {
-            case "ByteData" -> "0100";
-            case "NumericData" -> "0001";
-            case "AlphaNumericData" -> "0010";
-            default -> "";
+            case DataType.BYTE -> "0100";
+            case DataType.NUMERIC -> "0001";
+            case DataType.ALPHANUMERIC -> "0010";
         };
         StringBuilder dataLength = new StringBuilder(switch (typeOfData) {
-            case "ByteData" -> simpleIntToBinary(binaryData.length() / 8);
-            case "NumericData", "AlphaNumericData" -> simpleIntToBinary(data.length());
-            default -> "";
+            case DataType.BYTE -> simpleIntToBinary(binaryData.length() / 8);
+            case DataType.NUMERIC, DataType.ALPHANUMERIC -> simpleIntToBinary(data.length());
         });
 
-        if (typeOfData.equals("ByteData")) n = 8;
-        if (typeOfData.equals("AlphaNumericData")) n = 9;
-        if (typeOfData.equals("NumericData")) n = 10;
+        if (typeOfData == DataType.BYTE) n = 8;
+        if (typeOfData == DataType.ALPHANUMERIC) n = 9;
+        if (typeOfData == DataType.NUMERIC) n = 10;
         if (dataLength.length() < n) {
             n = n - dataLength.length();
             for (int i = 0; i < n; i++) {
@@ -453,14 +451,6 @@ public class Main extends JPanel {
         return s1.toString();
     }
 
-    static int pow(int number, int exponent) {
-        int a = 1;
-        for (int i = 0; i < exponent; i++) {
-            a *= number;
-        }
-        return a;
-    }
-
     static String getUTF8Code(char symbol) {
         String UTF8Code;
         String binaryCode = intToBinaryForUTF8((int) symbol + "");
@@ -511,7 +501,7 @@ public class Main extends JPanel {
             bytes.append(finalData.charAt(i));
             if (bytes.length() == 8) {
                 for (int j = 0; j < 8; j++) {
-                    matrixOfFinalBytes[i / 8] += Character.getNumericValue(bytes.charAt(j)) * pow(2, 7 - j);
+                    matrixOfFinalBytes[i / 8] += (int) (Character.getNumericValue(bytes.charAt(j)) * Math.pow(2, 7 - j));
                 }
                 bytes = new StringBuilder();
             }
