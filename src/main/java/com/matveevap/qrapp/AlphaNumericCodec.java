@@ -20,25 +20,19 @@ public class AlphaNumericCodec {
         }
     }
 
+    public static boolean isSupported(char c) {
+        return CHAR_TO_CODE.containsKey(c);
+    }
+
     public static int getCode(char c) {
         return CHAR_TO_CODE.get(c);
     }
 
-    public static String encodeChunk(String s) {
+    public static int encodeChunk(String s) {
         int a = getCode(s.charAt(0));
         if (s.length() == 2) {
             a = a * 45 + getCode(s.charAt(1));
         }
-        return getBinary(a);
-    }
-
-    private static String getBinary(int a) {
-        StringBuilder s = new StringBuilder();
-        s.append(Integer.toBinaryString(a));
-        if (a > 44)
-            s.insert(0, "0".repeat(11 - s.length()));
-        else
-            s.insert(0, "0".repeat(6 - s.length()));
-        return s.toString();
+        return a;
     }
 }

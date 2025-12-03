@@ -8,6 +8,9 @@ import javax.swing.*;
 import java.awt.*;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -25,14 +28,14 @@ public class Main extends JPanel {
 
         String data;
         DataType typeOfData;
-        String binaryData;
-        String serviceFieldData;
+        ArrayList<BitField> binaryData;
+        BitField serviceFieldData;
         String finalData;
         while (true) {
             data = reader.readLine();
             typeOfData = typeOfData(data);
             binaryData = dataToBinaryCode(data, typeOfData);
-            serviceFieldData = getServiceFieldData(data, binaryData, typeOfData);
+            serviceFieldData = getServiceFieldData(data, typeOfData);
             finalData = getFinalData(binaryData, serviceFieldData);
             if (finalData.length() > 152) {
                 System.out.println("Error. Maximum number of digits: 41, of Alphabetic-Numeric (digits, capital english letters and some special symbols) \nsymbols: 25, of other symbols: 17. " +
@@ -63,18 +66,10 @@ public class Main extends JPanel {
     }
 
     static DataType typeOfData(String data) {
-        Set<Character> alphaNumericChars = Set.of(
-                '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-                'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
-                'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
-                'U', 'V', 'W', 'X', 'Y', 'Z',
-                ' ', '$', '%', '*', '+', '-', '.', '/', ':'
-        );
-
         boolean hasNonDigit = false;
 
         for (char c : data.toCharArray()) {
-            if (!alphaNumericChars.contains(c)) {
+            if (!AlphaNumericCodec.isSupported(c)) {
                 return DataType.BYTE;
             }
             if (!Character.isDigit(c)) {
@@ -86,64 +81,62 @@ public class Main extends JPanel {
         return hasNonDigit ? DataType.ALPHANUMERIC : DataType.NUMERIC;
     }
 
-    static String dataToBinaryCode(String data, DataType typeOfData) {
-        StringBuilder binaryCode = new StringBuilder();
+    static ArrayList<BitField> dataToBinaryCode(String data, DataType typeOfData) {
+        ArrayList<BitField> fields = new ArrayList<>();
         switch (typeOfData) {
             case DataType.BYTE:
-                for (char chr : data.toCharArray())
-                    binaryCode.append(getUTF8Code(chr));
+                for (byte b : data.getBytes(StandardCharsets.UTF_8))
+                    fields.add(new BitField(b, 8));
                 break;
             case DataType.NUMERIC:
                 for (int i = 0; i < data.length(); i += 3) {
                     String chunk = data.substring(i, Math.min(i + 3, data.length()));
-                    binaryCode.append(intToBinary(chunk));
+                    int len = switch (chunk.length()) {
+                        case 1 -> 4;
+                        case 2 -> 7;
+                        case 3 -> 10;
+                        default -> throw new AssertionError("len=" + chunk.length());
+                    };
+                    fields.add(new BitField(Integer.parseInt(chunk), len));
                 }
                 break;
             case DataType.ALPHANUMERIC:
                 for (int i = 0; i < data.length(); i += 2) {
                     String chunk = data.substring(i, Math.min(i + 2, data.length()));
-                    binaryCode.append(AlphaNumericCodec.encodeChunk(chunk));
+                    fields.add(new BitField(AlphaNumericCodec.encodeChunk(chunk), chunk.length() == 1 ? 6 : 11));
                 }
         }
-        return binaryCode.toString();
+        return fields;
     }
 
-    static String getServiceFieldData(String data, String binaryData, DataType typeOfData) {
-        int n = 0;
-
-        String fieldOfData = switch (typeOfData) {
-            case DataType.BYTE -> "0100";
-            case DataType.NUMERIC -> "0001";
-            case DataType.ALPHANUMERIC -> "0010";
+    static BitField getServiceFieldData(String data, DataType typeOfData) {
+        int encodingMethod = switch (typeOfData) {
+            case DataType.BYTE -> 0b0100;
+            case DataType.NUMERIC -> 0b0001;
+            case DataType.ALPHANUMERIC -> 0b0010;
         };
-        StringBuilder dataLength = new StringBuilder(switch (typeOfData) {
-            case DataType.BYTE -> simpleIntToBinary(binaryData.length() / 8);
-            case DataType.NUMERIC, DataType.ALPHANUMERIC -> simpleIntToBinary(data.length());
-        });
-
-        if (typeOfData == DataType.BYTE) n = 8;
-        if (typeOfData == DataType.ALPHANUMERIC) n = 9;
-        if (typeOfData == DataType.NUMERIC) n = 10;
-        if (dataLength.length() < n) {
-            n = n - dataLength.length();
-            for (int i = 0; i < n; i++) {
-                dataLength.insert(0, "0");
-            }
-        }
-        return fieldOfData + dataLength;
+        int bitsOfEncodingMethod = 4;
+        int dataLength = switch (typeOfData) {
+            case DataType.BYTE -> data.getBytes(StandardCharsets.UTF_8).length;
+            case DataType.NUMERIC, DataType.ALPHANUMERIC -> data.length();
+        };
+        int bitsOfDataLength = switch (typeOfData) {
+            case DataType.BYTE -> 8;
+            case DataType.ALPHANUMERIC -> 9;
+            case NUMERIC -> 10;
+        };
+        return new BitField((encodingMethod << bitsOfDataLength) | dataLength, bitsOfEncodingMethod + bitsOfDataLength);
     }
 
     static String getFinalData(String binaryData, String serviceFieldData) {
         StringBuilder finalData = new StringBuilder(serviceFieldData + binaryData);
-        int n;
-
         if (finalData.length() <= 150) finalData.append("0000");
         if (finalData.length() % 8 != 0) {
-            n = 8 - (finalData.length() % 8);
+            int n = 8 - (finalData.length() % 8);
             finalData.append("0".repeat(n));
         }
         if (finalData.length() < 152) {
-            n = (152 / 8) - finalData.length() / 8;
+            int n = (152 / 8) - finalData.length() / 8;
             for (int i = 0; i < n; i++) {
                 if (i % 2 == 0) finalData.append("11101100");
                 else finalData.append("00010001");
@@ -378,60 +371,6 @@ public class Main extends JPanel {
             s1.append(s.charAt(i));
         }
         return s1.toString();
-    }
-
-    static String intToBinary(String numberInt) {
-        int number = Integer.parseInt(numberInt);
-        int a = number;
-        int n = 0;
-        StringBuilder s0 = new StringBuilder();
-        StringBuilder s = new StringBuilder();
-        StringBuilder s1 = new StringBuilder();
-        while (number >= 1) {
-            s.append(number % 2);
-            number = number / 2;
-        }
-        for (int i = s.length() - 1; i >= 0; i--) {
-            s1.append(s.charAt(i));
-        }
-        if (s1.length() < 10 && a > 99 && a < 1000) n = 10 - s1.length();
-        if (s1.length() < 7 && a > 9 && a < 100) n = 7 - s1.length();
-        if (s1.length() < 4 && a < 10) n = 4 - s1.length();
-        s0.append("0".repeat(n));
-        return s0.toString() + s1;
-    }
-
-    static String intToBinaryForUTF8(String numberInt) {
-        int number = Integer.parseInt(numberInt);
-        int a = number;
-        int n = 0;
-        StringBuilder s = new StringBuilder();
-        StringBuilder s1 = new StringBuilder();
-        while (number >= 1) {
-            s.append(number % 2);
-            number = number / 2;
-        }
-        for (int i = s.length() - 1; i >= 0; i--) {
-            s1.append(s.charAt(i));
-        }
-        if (a < 128 && s1.length() < 7) n = 7 - s1.length();
-        if (a >= 128 && a < 2048 && s1.length() < 11) n = 11 - s1.length();
-        if (a >= 2048 && a < 65536 && s1.length() < 16) n = 16 - s1.length();
-        for (int i = 0; i < n; i++) {
-            s1.insert(0, "0");
-        }
-        return s1.toString();
-    }
-
-    static String getUTF8Code(char symbol) {
-        String UTF8Code;
-        String binaryCode = intToBinaryForUTF8((int) symbol + "");
-        if ((int) symbol < 128) UTF8Code = "0" + binaryCode;
-        else if ((int) symbol < 2048) {
-            UTF8Code = "110" + binaryCode.substring(0, 5) + "10" + binaryCode.substring(5, 11);
-        } else
-            UTF8Code = "1110" + binaryCode.substring(0, 4) + "10" + binaryCode.substring(4, 10) + "10" + binaryCode.substring(10, 16);
-        return UTF8Code;
     }
 
     static String[][] getMaskedMatrix(String[][] matrix, int numberOfMask) {
