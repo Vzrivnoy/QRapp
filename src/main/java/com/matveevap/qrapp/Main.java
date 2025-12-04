@@ -9,10 +9,8 @@ import java.awt.*;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
-import java.util.Objects;
-import java.util.Set;
 
 public class Main extends JPanel {
     private static final int SQUARE_SIZE = 25;
@@ -30,14 +28,14 @@ public class Main extends JPanel {
         DataType typeOfData;
         ArrayList<BitField> binaryData;
         BitField serviceFieldData;
-        String finalData;
+        byte[] finalData;
         while (true) {
             data = reader.readLine();
             typeOfData = typeOfData(data);
             binaryData = dataToBinaryCode(data, typeOfData);
             serviceFieldData = getServiceFieldData(data, typeOfData);
-            finalData = getFinalData(binaryData, serviceFieldData);
-            if (finalData.length() > 152) {
+            finalData = getFinalData(binaryData, serviceFieldData, 152);
+            if (finalData.length > 152) {
                 System.out.println("Error. Maximum number of digits: 41, of Alphabetic-Numeric (digits, capital english letters and some special symbols) \nsymbols: 25, of other symbols: 17. " +
                         "Try to reduce the length of your message");
                 System.out.print(">>>");
@@ -87,7 +85,6 @@ public class Main extends JPanel {
             case DataType.BYTE:
                 for (byte b : data.getBytes(StandardCharsets.UTF_8))
                     fields.add(new BitField(b, 8));
-                break;
             case DataType.NUMERIC:
                 for (int i = 0; i < data.length(); i += 3) {
                     String chunk = data.substring(i, Math.min(i + 3, data.length()));
@@ -99,7 +96,6 @@ public class Main extends JPanel {
                     };
                     fields.add(new BitField(Integer.parseInt(chunk), len));
                 }
-                break;
             case DataType.ALPHANUMERIC:
                 for (int i = 0; i < data.length(); i += 2) {
                     String chunk = data.substring(i, Math.min(i + 2, data.length()));
@@ -128,24 +124,50 @@ public class Main extends JPanel {
         return new BitField((encodingMethod << bitsOfDataLength) | dataLength, bitsOfEncodingMethod + bitsOfDataLength);
     }
 
-    static String getFinalData(String binaryData, String serviceFieldData) {
-        StringBuilder finalData = new StringBuilder(serviceFieldData + binaryData);
-        if (finalData.length() <= 150) finalData.append("0000");
-        if (finalData.length() % 8 != 0) {
-            int n = 8 - (finalData.length() % 8);
-            finalData.append("0".repeat(n));
+    static byte[] getFinalData(List<BitField> binaryData, BitField serviceFieldData, int capacityBits) {
+        List<BitField> allFields = new ArrayList<>(binaryData);
+        allFields.addFirst(serviceFieldData);
+        BitData data = BitData.of(allFields);
+
+        int currentBits = data.totalBits();
+        byte[] buffer = data.bytes();
+
+        int remainder = currentBits % 8;
+        int padToByte = remainder == 0 ? 0 : (8 - remainder);
+        if (padToByte > 0) {
+            buffer = appendBits(buffer, currentBits, 0, padToByte);
+            currentBits += padToByte;
         }
-        if (finalData.length() < 152) {
-            int n = (152 / 8) - finalData.length() / 8;
-            for (int i = 0; i < n; i++) {
-                if (i % 2 == 0) finalData.append("11101100");
-                else finalData.append("00010001");
-            }
+
+        int k = 0;
+        while (currentBits < capacityBits) {
+            int bitsToAdd = 8;
+
+            int pattern = (++k) % 2 == 0 ? 0b11101100 : 0b00010001;
+            buffer = appendBits(buffer, currentBits, pattern, bitsToAdd);
+            currentBits += bitsToAdd;
         }
-        return finalData.toString();
+        return buffer;
     }
 
-    static String getBinaryCorrectionBytes(String finalData) {
+    private static byte[] appendBits(byte[] src, int srcBits, int value, int bitCount) {
+        int newTotalBits = srcBits + bitCount;
+        int newByteLen = (newTotalBits + 7) / 8;
+        byte[] dst = Arrays.copyOf(src, newByteLen);
+
+        int bitIndex = srcBits;
+        for (int i = bitCount - 1; i >= 0; i--) {
+            int bit = (value >>> i) & 1;
+            int byteIndex = bitIndex >>> 3;
+            int bitPos = 7 - (bitIndex & 7);
+            if (bit == 1)
+                dst[byteIndex] |= (byte) (1 << bitPos);
+            bitIndex++;
+        }
+        return dst;
+    }
+
+    static String getBinaryCorrectionBytes(byte[] finalData) {
         StringBuilder binaryCorrectionBytes = new StringBuilder();
         StringBuilder s;
         int n;
