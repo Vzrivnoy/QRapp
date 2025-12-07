@@ -16,7 +16,7 @@ public class Main extends JPanel {
     private static final int SQUARE_SIZE = 25;
     private static final int ROWS = 23;
     private static final int COLUMNS = 23;
-    private static final String[][] QRMATRIX = new String[21][21];
+    private static final byte[][] QRMATRIX = new byte[21][21];
     private static int numberOfMask = 0;
 
     public static void main(String[] args) throws Exception {
@@ -44,12 +44,15 @@ public class Main extends JPanel {
             }
         }
 
-        String binaryCorrectionBytes = getBinaryCorrectionBytes(finalData);
-        String realFinalData = finalData + binaryCorrectionBytes;
-        String[][] matrix = new String[21][21];
+        byte[] correctionBytes = getCorrectionBytes(finalData);
+        byte[] realFinalData = new byte[finalData.length + correctionBytes.length];
+        System.arraycopy(finalData, 0, realFinalData, 0, finalData.length);
+        System.arraycopy(correctionBytes, 0, realFinalData, finalData.length, correctionBytes.length);
+
+        byte[][] matrix = new byte[21][21];
         for (int i = 0; i < 21; i++) {
             for (int j = 0; j < 21; j++) {
-                matrix[i][j] = "0";
+                matrix[i][j] = 0;
             }
         }
         for (int i = 0; i < 21; i++) {
@@ -107,18 +110,18 @@ public class Main extends JPanel {
 
     static BitField getServiceFieldData(String data, DataType typeOfData) {
         int encodingMethod = switch (typeOfData) {
-            case DataType.BYTE -> 0b0100;
-            case DataType.NUMERIC -> 0b0001;
-            case DataType.ALPHANUMERIC -> 0b0010;
+            case BYTE -> 0b0100;
+            case NUMERIC -> 0b0001;
+            case ALPHANUMERIC -> 0b0010;
         };
         int bitsOfEncodingMethod = 4;
         int dataLength = switch (typeOfData) {
-            case DataType.BYTE -> data.getBytes(StandardCharsets.UTF_8).length;
-            case DataType.NUMERIC, DataType.ALPHANUMERIC -> data.length();
+            case BYTE -> data.getBytes(StandardCharsets.UTF_8).length;
+            case NUMERIC, ALPHANUMERIC -> data.length();
         };
         int bitsOfDataLength = switch (typeOfData) {
-            case DataType.BYTE -> 8;
-            case DataType.ALPHANUMERIC -> 9;
+            case BYTE -> 8;
+            case ALPHANUMERIC -> 9;
             case NUMERIC -> 10;
         };
         return new BitField((encodingMethod << bitsOfDataLength) | dataLength, bitsOfEncodingMethod + bitsOfDataLength);
@@ -135,54 +138,20 @@ public class Main extends JPanel {
         int remainder = currentBits % 8;
         int padToByte = remainder == 0 ? 0 : (8 - remainder);
         if (padToByte > 0) {
-            buffer = appendBits(buffer, currentBits, 0, padToByte);
+            buffer[buffer.length - 1] <<= padToByte;
             currentBits += padToByte;
         }
 
-        int k = 0;
-        while (currentBits < capacityBits) {
-            int bitsToAdd = 8;
+        if (currentBits < capacityBits) {
+            int currentBytes = buffer.length;
+            int bytesToAdd = (capacityBits - currentBits) / 8;
+            buffer = Arrays.copyOf(buffer, buffer.length + bytesToAdd);
 
-            int pattern = (++k) % 2 == 0 ? 0b11101100 : 0b00010001;
-            buffer = appendBits(buffer, currentBits, pattern, bitsToAdd);
-            currentBits += bitsToAdd;
+            for (int i = 0; i < bytesToAdd; i++) {
+                buffer[currentBytes + i] = (i % 2 == 0) ? (byte) 0b11101100 : 0b00010001;
+            }
         }
         return buffer;
-    }
-
-    private static byte[] appendBits(byte[] src, int srcBits, int value, int bitCount) {
-        int newTotalBits = srcBits + bitCount;
-        int newByteLen = (newTotalBits + 7) / 8;
-        byte[] dst = Arrays.copyOf(src, newByteLen);
-
-        int bitIndex = srcBits;
-        for (int i = bitCount - 1; i >= 0; i--) {
-            int bit = (value >>> i) & 1;
-            int byteIndex = bitIndex >>> 3;
-            int bitPos = 7 - (bitIndex & 7);
-            if (bit == 1)
-                dst[byteIndex] |= (byte) (1 << bitPos);
-            bitIndex++;
-        }
-        return dst;
-    }
-
-    static String getBinaryCorrectionBytes(byte[] finalData) {
-        StringBuilder binaryCorrectionBytes = new StringBuilder();
-        StringBuilder s;
-        int n;
-        int[] correctionBytes = getCorrectionBytes(finalData);
-        for (int correctionByte : correctionBytes) {
-            s = new StringBuilder(simpleIntToBinary(correctionByte));
-            if (s.length() % 8 != 0) {
-                n = 8 - (s.length() % 8);
-                for (int j = 0; j < n; j++) {
-                    s.insert(0, "0");
-                }
-            }
-            binaryCorrectionBytes.append(s);
-        }
-        return binaryCorrectionBytes.toString();
     }
 
     static void getMatrixWithRightMask() {
@@ -442,13 +411,13 @@ public class Main extends JPanel {
         return matrixOfFinalBytes;
     }
 
-    static int[] getCorrectionBytes(String finalData) {
+    //TODO: разобраться с полями галуа
+    static byte[] getCorrectionBytes(byte[] finalBytes) {
         int a, b, c;
         int numberOfCorrectionBytes = 7;
         int numberOfBytesInBlock = 19;
-        int[] correctionBytes;
-        int[] matrix = new int[max(numberOfCorrectionBytes, numberOfBytesInBlock)];
-        int[] matrixOfFinalBytes = getListOfFinalBytes(finalData);
+        byte[] correctionBytes;
+        byte[] matrix = new byte[max(numberOfCorrectionBytes, numberOfBytesInBlock)];
         int[] generatingPolynomial = new int[]{87, 229, 146, 149, 238, 102, 21};
         int[] galuaField = new int[]{
                 1, 2, 4, 8, 16, 32, 64, 128, 29, 58, 116, 232, 205, 135, 19, 38,
@@ -487,10 +456,10 @@ public class Main extends JPanel {
                 79, 174, 213, 233, 230, 231, 173, 232, 116, 214, 244, 234, 168, 80, 88, 175
         };
         for (int i = 0; i < matrix.length; i++) {
-            if (i + 1 <= matrixOfFinalBytes.length) matrix[i] = matrixOfFinalBytes[i];
+            if (i + 1 <= finalBytes.length) matrix[i] = finalBytes[i];
             else matrix[i] = 0;
         }
-        for (int i = 0; i < matrixOfFinalBytes.length; i++) {
+        for (int i = 0; i < finalBytes.length; i++) {
             a = matrix[0];
             for (int j = 1; j < matrix.length; j++) {
                 matrix[j - 1] = matrix[j];
@@ -504,10 +473,10 @@ public class Main extends JPanel {
             for (int j = 0; j < numberOfCorrectionBytes; j++) {
                 c = b + generatingPolynomial[j];
                 if (c > 254) c = c % 255;
-                matrix[j] = matrix[j] ^ galuaField[c];
+                matrix[j] = (byte) (matrix[j] ^ galuaField[c]);
             }
         }
-        correctionBytes = new int[numberOfCorrectionBytes];
+        correctionBytes = new byte[numberOfCorrectionBytes];
         System.arraycopy(matrix, 0, correctionBytes, 0, numberOfCorrectionBytes);
         return correctionBytes;
     }
