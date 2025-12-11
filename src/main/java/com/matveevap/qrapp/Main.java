@@ -1,8 +1,5 @@
 package com.matveevap.qrapp;
 
-import static java.lang.Integer.MAX_VALUE;
-import static java.lang.Math.max;
-
 import javax.swing.*;
 
 import java.awt.*;
@@ -19,76 +16,28 @@ public class Main extends JPanel {
     private static final byte[][] QRMATRIX = new byte[21][21];
     private static int numberOfMask = 0;
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
-        System.out.println("Type data you want to transform into QR code below");
-        System.out.print(">>>");
+        ServiceInfo serviceInfo = QrInputHandler.scanQrParameters(reader);
 
-        String data;
-        DataType typeOfData;
-        ArrayList<BitField> binaryData;
-        BitField serviceFieldData;
-        byte[] finalData;
-        while (true) {
-            data = reader.readLine();
-            typeOfData = typeOfData(data);
-            binaryData = dataToBinaryCode(data, typeOfData);
-            serviceFieldData = getServiceFieldData(data, typeOfData);
-            finalData = getFinalData(binaryData, serviceFieldData, 152);
-            if (finalData.length > 152) {
-                System.out.println("Error. Maximum number of digits: 41, of Alphabetic-Numeric (digits, capital english letters and some special symbols) \nsymbols: 25, of other symbols: 17. " +
-                        "Try to reduce the length of your message");
-                System.out.print(">>>");
-            } else {
-                break;
-            }
-        }
+        String data = serviceInfo.data();
+        DataType dataType = serviceInfo.dataType();
 
-        byte[] correctionBytes = getCorrectionBytes(finalData);
-        byte[] realFinalData = new byte[finalData.length + correctionBytes.length];
-        System.arraycopy(finalData, 0, realFinalData, 0, finalData.length);
-        System.arraycopy(correctionBytes, 0, realFinalData, finalData.length, correctionBytes.length);
-
-        byte[][] matrix = new byte[21][21];
-        for (int i = 0; i < 21; i++) {
-            for (int j = 0; j < 21; j++) {
-                matrix[i][j] = 0;
-            }
-        }
-        for (int i = 0; i < 21; i++) {
-            System.arraycopy(matrix[i], 0, QRMATRIX[i], 0, 21);
-        }
-        qrCodeMakerFirst(realFinalData);
-        getMatrixWithRightMask();
-        qrCodeMakerSecond();
-        addPositionMarkersAndLinesOfSync();
-        qrOutput();
-        System.out.println("\nYour QR code was successfully made!");
+        List<BitField> encodedData = getEncodedData(data, dataType);
+        BitField serviceDataField = getServiceDataField(serviceInfo);
+        byte[] dataWithServiceFields = getDataWithServiceFields(encodedData, serviceDataField, serviceInfo);
+        byte[][] chunksOfData = getChunksOfData(dataWithServiceFields, serviceInfo);
+        byte[][] chunksOfCorrectionBytes = CorrectionBytes.getCorrectionBytes(chunksOfData, serviceInfo);
+        byte[] finalBytes = null;
     }
 
-    static DataType typeOfData(String data) {
-        boolean hasNonDigit = false;
-
-        for (char c : data.toCharArray()) {
-            if (!AlphaNumericCodec.isSupported(c)) {
-                return DataType.BYTE;
-            }
-            if (!Character.isDigit(c)) {
-                hasNonDigit = true;
-            }
-        }
-
-        // Если дошли сюда — все символы AlphaNumeric
-        return hasNonDigit ? DataType.ALPHANUMERIC : DataType.NUMERIC;
-    }
-
-    static ArrayList<BitField> dataToBinaryCode(String data, DataType typeOfData) {
+    static ArrayList<BitField> getEncodedData(String data, DataType dataType) {
         ArrayList<BitField> fields = new ArrayList<>();
-        switch (typeOfData) {
-            case DataType.BYTE:
+        switch (dataType) {
+            case BYTE:
                 for (byte b : data.getBytes(StandardCharsets.UTF_8))
                     fields.add(new BitField(b, 8));
-            case DataType.NUMERIC:
+            case NUMERIC:
                 for (int i = 0; i < data.length(); i += 3) {
                     String chunk = data.substring(i, Math.min(i + 3, data.length()));
                     int len = switch (chunk.length()) {
@@ -99,7 +48,7 @@ public class Main extends JPanel {
                     };
                     fields.add(new BitField(Integer.parseInt(chunk), len));
                 }
-            case DataType.ALPHANUMERIC:
+            case ALPHANUMERIC:
                 for (int i = 0; i < data.length(); i += 2) {
                     String chunk = data.substring(i, Math.min(i + 2, data.length()));
                     fields.add(new BitField(AlphaNumericCodec.encodeChunk(chunk), chunk.length() == 1 ? 6 : 11));
@@ -108,26 +57,15 @@ public class Main extends JPanel {
         return fields;
     }
 
-    static BitField getServiceFieldData(String data, DataType typeOfData) {
-        int encodingMethod = switch (typeOfData) {
-            case BYTE -> 0b0100;
-            case NUMERIC -> 0b0001;
-            case ALPHANUMERIC -> 0b0010;
-        };
+    static BitField getServiceDataField(ServiceInfo serviceInfo) {
+        int encodingMethod = serviceInfo.encodingMethod();
         int bitsOfEncodingMethod = 4;
-        int dataLength = switch (typeOfData) {
-            case BYTE -> data.getBytes(StandardCharsets.UTF_8).length;
-            case NUMERIC, ALPHANUMERIC -> data.length();
-        };
-        int bitsOfDataLength = switch (typeOfData) {
-            case BYTE -> 8;
-            case ALPHANUMERIC -> 9;
-            case NUMERIC -> 10;
-        };
+        int dataLength = serviceInfo.encodedDataLength();
+        int bitsOfDataLength = serviceInfo.lengthOfDataLengthField();
         return new BitField((encodingMethod << bitsOfDataLength) | dataLength, bitsOfEncodingMethod + bitsOfDataLength);
     }
 
-    static byte[] getFinalData(List<BitField> binaryData, BitField serviceFieldData, int capacityBits) {
+    static byte[] getDataWithServiceFields(List<BitField> binaryData, BitField serviceFieldData, ServiceInfo serviceInfo) {
         List<BitField> allFields = new ArrayList<>(binaryData);
         allFields.addFirst(serviceFieldData);
         BitData data = BitData.of(allFields);
@@ -142,6 +80,7 @@ public class Main extends JPanel {
             currentBits += padToByte;
         }
 
+        int capacityBits = serviceInfo.maxCapacity();
         if (currentBits < capacityBits) {
             int currentBytes = buffer.length;
             int bytesToAdd = (capacityBits - currentBits) / 8;
@@ -154,7 +93,53 @@ public class Main extends JPanel {
         return buffer;
     }
 
-    static void getMatrixWithRightMask() {
+    static byte[][] getChunksOfData(byte[] data, ServiceInfo serviceInfo) {
+        int[] lengthsOfChunks = getLengthsOfChunks(serviceInfo);
+        int numberOfBlocks = serviceInfo.numberOfBlocks();
+        byte[][] chunks = new byte[numberOfBlocks][];
+        int startIndex = 0;
+        for (int i = 0; i < numberOfBlocks; i++) {
+            int length = lengthsOfChunks[i];
+            chunks[i] = Arrays.copyOfRange(data, startIndex, startIndex + length);
+            startIndex += length;
+        }
+        return chunks;
+    }
+
+    static int[] getLengthsOfChunks(ServiceInfo serviceInfo) {
+        int dataLengthInBytes = serviceInfo.maxCapacity() / 8;
+        int numberOfBlocks = serviceInfo.numberOfBlocks();
+
+        int quotient = dataLengthInBytes / numberOfBlocks;
+        int remainder = dataLengthInBytes % numberOfBlocks;
+
+        int[] lengths = new int[numberOfBlocks];
+        Arrays.fill(lengths, 0, numberOfBlocks - remainder, quotient);
+        Arrays.fill(lengths, numberOfBlocks - remainder, numberOfBlocks, quotient + 1);
+        return lengths;
+    }
+
+    static byte[] getFinalBytes(byte[][] chunksOfData, byte[][] chunksOfCorrectionBytes, ServiceInfo serviceInfo) {
+        int dataLengthInBytes = serviceInfo.maxCapacity();
+        int numberOfCorrectionBytes = 0;
+        for (byte[] correctionBytes : chunksOfCorrectionBytes)
+            numberOfCorrectionBytes += chunksOfCorrectionBytes.length;
+        byte[] finalBytes = new byte[dataLengthInBytes + numberOfCorrectionBytes];
+        int maxBytes = chunksOfData[chunksOfData.length - 1].length;
+        int k = 0;
+        for (int byteNumber = 1; byteNumber <= maxBytes; byteNumber++) {
+            for (int i = 0; i < chunksOfData.length; i++) {
+                if (chunksOfData[i].length < byteNumber)
+                    continue;
+
+                finalBytes[k] = chunksOfData[i][byteNumber - 1];
+                k++;
+            }
+        }
+        return null;
+    }
+
+    /*static void getMatrixWithRightMask() {
         String[][] maskedMatrix = new String[21][21];
         String[][] matrixWithRightMask = new String[21][21];
         StringBuilder s = new StringBuilder();
@@ -339,7 +324,7 @@ public class Main extends JPanel {
                 matrix[6][i] = "1";
             }
         }
-    }
+    }*/
 
     static void qrOutput() {
         JFrame frame = new JFrame("QR Code");
@@ -348,20 +333,6 @@ public class Main extends JPanel {
         frame.pack();
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
-    }
-
-    static String simpleIntToBinary(int number) {
-        if (number == 0) return "00000000";
-        StringBuilder s = new StringBuilder();
-        StringBuilder s1 = new StringBuilder();
-        while (number >= 1) {
-            s.append(number % 2);
-            number = number / 2;
-        }
-        for (int i = s.length() - 1; i >= 0; i--) {
-            s1.append(s.charAt(i));
-        }
-        return s1.toString();
     }
 
     static String[][] getMaskedMatrix(String[][] matrix, int numberOfMask) {
@@ -394,91 +365,6 @@ public class Main extends JPanel {
             }
         }
         return maskedMatrix;
-    }
-
-    static int[] getListOfFinalBytes(String finalData) {
-        StringBuilder bytes = new StringBuilder();
-        int[] matrixOfFinalBytes = new int[finalData.length() / 8];
-        for (int i = 0; i < finalData.length(); i++) {
-            bytes.append(finalData.charAt(i));
-            if (bytes.length() == 8) {
-                for (int j = 0; j < 8; j++) {
-                    matrixOfFinalBytes[i / 8] += (int) (Character.getNumericValue(bytes.charAt(j)) * Math.pow(2, 7 - j));
-                }
-                bytes = new StringBuilder();
-            }
-        }
-        return matrixOfFinalBytes;
-    }
-
-    //TODO: разобраться с полями галуа
-    static byte[] getCorrectionBytes(byte[] finalBytes) {
-        int a, b, c;
-        int numberOfCorrectionBytes = 7;
-        int numberOfBytesInBlock = 19;
-        byte[] correctionBytes;
-        byte[] matrix = new byte[max(numberOfCorrectionBytes, numberOfBytesInBlock)];
-        int[] generatingPolynomial = new int[]{87, 229, 146, 149, 238, 102, 21};
-        int[] galuaField = new int[]{
-                1, 2, 4, 8, 16, 32, 64, 128, 29, 58, 116, 232, 205, 135, 19, 38,
-                76, 152, 45, 90, 180, 117, 234, 201, 143, 3, 6, 12, 24, 48, 96, 192,
-                157, 39, 78, 156, 37, 74, 148, 53, 106, 212, 181, 119, 238, 193, 159, 35,
-                70, 140, 5, 10, 20, 40, 80, 160, 93, 186, 105, 210, 185, 111, 222, 161,
-                95, 190, 97, 194, 153, 47, 94, 188, 101, 202, 137, 15, 30, 60, 120, 240,
-                253, 231, 211, 187, 107, 214, 177, 127, 254, 225, 223, 163, 91, 182, 113, 226,
-                217, 175, 67, 134, 17, 34, 68, 136, 13, 26, 52, 104, 208, 189, 103, 206,
-                129, 31, 62, 124, 248, 237, 199, 147, 59, 118, 236, 197, 151, 51, 102, 204,
-                133, 23, 46, 92, 184, 109, 218, 169, 79, 158, 33, 66, 132, 21, 42, 84,
-                168, 77, 154, 41, 82, 164, 85, 170, 73, 146, 57, 114, 228, 213, 183, 115,
-                230, 209, 191, 99, 198, 145, 63, 126, 252, 229, 215, 179, 123, 246, 241, 255,
-                227, 219, 171, 75, 150, 49, 98, 196, 149, 55, 110, 220, 165, 87, 174, 65,
-                130, 25, 50, 100, 200, 141, 7, 14, 28, 56, 112, 224, 221, 167, 83, 166,
-                81, 162, 89, 178, 121, 242, 249, 239, 195, 155, 43, 86, 172, 69, 138, 9,
-                18, 36, 72, 144, 61, 122, 244, 245, 247, 243, 251, 235, 203, 139, 11, 22,
-                44, 88, 176, 125, 250, 233, 207, 131, 27, 54, 108, 216, 173, 71, 142, 1
-        };
-        int[] inversedGaluaField = new int[]{
-                -1, 0, 1, 25, 2, 50, 26, 198, 3, 223, 51, 238, 27, 104, 199, 75,
-                4, 100, 224, 14, 52, 141, 239, 129, 28, 193, 105, 248, 200, 8, 76, 113,
-                5, 138, 101, 47, 225, 36, 15, 33, 53, 147, 142, 218, 240, 18, 130, 69,
-                29, 181, 194, 125, 106, 39, 249, 185, 201, 154, 9, 120, 77, 228, 114, 166,
-                6, 191, 139, 98, 102, 221, 48, 253, 226, 152, 37, 179, 16, 145, 34, 136,
-                54, 208, 148, 206, 143, 150, 219, 189, 241, 210, 19, 92, 131, 56, 70, 64,
-                30, 66, 182, 163, 195, 72, 126, 110, 107, 58, 40, 84, 250, 133, 186, 61,
-                202, 94, 155, 159, 10, 21, 121, 43, 78, 212, 229, 172, 115, 243, 167, 87,
-                7, 112, 192, 247, 140, 128, 99, 13, 103, 74, 222, 237, 49, 197, 254, 24,
-                227, 165, 153, 119, 38, 184, 180, 124, 17, 68, 146, 217, 35, 32, 137, 46,
-                55, 63, 209, 91, 149, 188, 207, 205, 144, 135, 151, 178, 220, 252, 190, 97,
-                242, 86, 211, 171, 20, 42, 93, 158, 132, 60, 57, 83, 71, 109, 65, 162,
-                31, 45, 67, 216, 183, 123, 164, 118, 196, 23, 73, 236, 127, 12, 111, 246,
-                108, 161, 59, 82, 41, 157, 85, 170, 251, 96, 134, 177, 187, 204, 62, 90,
-                203, 89, 95, 176, 156, 169, 160, 81, 11, 245, 22, 235, 122, 117, 44, 215,
-                79, 174, 213, 233, 230, 231, 173, 232, 116, 214, 244, 234, 168, 80, 88, 175
-        };
-        for (int i = 0; i < matrix.length; i++) {
-            if (i + 1 <= finalBytes.length) matrix[i] = finalBytes[i];
-            else matrix[i] = 0;
-        }
-        for (int i = 0; i < finalBytes.length; i++) {
-            a = matrix[0];
-            for (int j = 1; j < matrix.length; j++) {
-                matrix[j - 1] = matrix[j];
-            }
-            matrix[matrix.length - 1] = 0;
-
-            if (a == 0) continue;
-
-            b = inversedGaluaField[a];
-
-            for (int j = 0; j < numberOfCorrectionBytes; j++) {
-                c = b + generatingPolynomial[j];
-                if (c > 254) c = c % 255;
-                matrix[j] = (byte) (matrix[j] ^ galuaField[c]);
-            }
-        }
-        correctionBytes = new byte[numberOfCorrectionBytes];
-        System.arraycopy(matrix, 0, correctionBytes, 0, numberOfCorrectionBytes);
-        return correctionBytes;
     }
 
     @Override
