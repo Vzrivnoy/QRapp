@@ -2,7 +2,6 @@ package com.matveevap.qrapp;
 
 import javax.swing.*;
 
-import java.awt.*;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -10,11 +9,11 @@ import java.util.*;
 import java.util.List;
 
 public class Main extends JPanel {
-    private static final int SQUARE_SIZE = 25;
-    private static final int ROWS = 23;
-    private static final int COLUMNS = 23;
-    private static final byte[][] QRMATRIX = new byte[21][21];
-    private static int numberOfMask = 0;
+//    private static final int SQUARE_SIZE = 25;
+//    private static final int ROWS = 23;
+//    private static final int COLUMNS = 23;
+//    private static final byte[][] QRMATRIX = new byte[21][21];
+//    private static int numberOfMask = 0;
 
     public static void main(String[] args) {
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
@@ -28,8 +27,10 @@ public class Main extends JPanel {
         byte[] dataWithServiceFields = getDataWithServiceFields(encodedData, serviceDataField, serviceInfo);
         byte[][] chunksOfData = getChunksOfData(dataWithServiceFields, serviceInfo);
         byte[][] chunksOfCorrectionBytes = CorrectionBytes.getCorrectionBytes(chunksOfData, serviceInfo);
-        byte[] finalBytes = null;
+        byte[] finalBytes = getFinalBytes(chunksOfData, chunksOfCorrectionBytes, serviceInfo);
+        FinalBits finalBits = FinalBits.of(finalBytes);
     }
+
 
     static ArrayList<BitField> getEncodedData(String data, DataType dataType) {
         ArrayList<BitField> fields = new ArrayList<>();
@@ -120,23 +121,39 @@ public class Main extends JPanel {
     }
 
     static byte[] getFinalBytes(byte[][] chunksOfData, byte[][] chunksOfCorrectionBytes, ServiceInfo serviceInfo) {
-        int dataLengthInBytes = serviceInfo.maxCapacity();
+        int dataLengthInBytes = serviceInfo.maxCapacity() / 8;
         int numberOfCorrectionBytes = 0;
-        for (byte[] correctionBytes : chunksOfCorrectionBytes)
-            numberOfCorrectionBytes += chunksOfCorrectionBytes.length;
+        int maxCorrectionBytes = 0;
+
+        for (byte[] correctionBytes : chunksOfCorrectionBytes) {
+            numberOfCorrectionBytes += correctionBytes.length;
+            maxCorrectionBytes = Math.max(maxCorrectionBytes, correctionBytes.length);
+        }
         byte[] finalBytes = new byte[dataLengthInBytes + numberOfCorrectionBytes];
+
         int maxBytes = chunksOfData[chunksOfData.length - 1].length;
         int k = 0;
         for (int byteNumber = 1; byteNumber <= maxBytes; byteNumber++) {
-            for (int i = 0; i < chunksOfData.length; i++) {
-                if (chunksOfData[i].length < byteNumber)
+            for (byte[] chunkOfData : chunksOfData) {
+                if (chunkOfData.length < byteNumber)
                     continue;
 
-                finalBytes[k] = chunksOfData[i][byteNumber - 1];
+                finalBytes[k] = chunkOfData[byteNumber - 1];
                 k++;
             }
         }
-        return null;
+
+        for (int byteNumber = 1; byteNumber <= maxCorrectionBytes; byteNumber++) {
+            for (byte[] chunkOfCorrectionBytes : chunksOfCorrectionBytes) {
+                if (chunkOfCorrectionBytes.length < byteNumber)
+                    continue;
+
+                finalBytes[k] = chunkOfCorrectionBytes[byteNumber - 1];
+                k++;
+            }
+        }
+
+        return finalBytes;
     }
 
     /*static void getMatrixWithRightMask() {
@@ -324,7 +341,7 @@ public class Main extends JPanel {
                 matrix[6][i] = "1";
             }
         }
-    }*/
+    }
 
     static void qrOutput() {
         JFrame frame = new JFrame("QR Code");
@@ -386,6 +403,6 @@ public class Main extends JPanel {
     @Override
     public Dimension getPreferredSize() {
         return new Dimension(COLUMNS * SQUARE_SIZE, ROWS * SQUARE_SIZE);
-    }
+    }*/
 
 }
