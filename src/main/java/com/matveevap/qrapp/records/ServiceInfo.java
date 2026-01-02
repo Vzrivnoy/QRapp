@@ -1,4 +1,7 @@
-package com.matveevap.qrapp;
+package com.matveevap.qrapp.records;
+
+import com.matveevap.qrapp.enums.CorrectionLevel;
+import com.matveevap.qrapp.enums.DataType;
 
 import java.nio.charset.StandardCharsets;
 
@@ -6,10 +9,9 @@ public record ServiceInfo(
         String data,
         DataType dataType,
         CorrectionLevel correctionLevel,
-        int encodedDataLength,
+        BitField dataLengthField,
         int version,
         int maxCapacity,
-        int lengthOfDataLengthField,
         int encodingMethod,
         int numberOfBlocks,
         int numberOfCorrectionBytes,
@@ -17,30 +19,32 @@ public record ServiceInfo(
 ) {
     public static ServiceInfo of(String data, CorrectionLevel correctionLevel) {
         DataType dataType = DataType.getTypeOfData(data);
-        int level = CorrectionLevel.toInt(correctionLevel);
+
+        int levelIndex = CorrectionLevel.getIndex(correctionLevel);
+
         int encodedDataLength = getEncodedDataLength(data, dataType);
-        int[] levelAndMaxCapacity = getCodeVersionAndMaxCapacity(encodedDataLength, level, dataType);
+        int[] levelAndMaxCapacity = getCodeVersionAndMaxCapacity(encodedDataLength, levelIndex, dataType);
         int version = levelAndMaxCapacity[0];
         int maxCapacity = levelAndMaxCapacity[1];
-        int lengthOfDataLengthField = getLengthOfDataLengthField(dataType, version);
+        BitField dataLengthField = getDataLengthField(data, dataType, version, encodedDataLength);
         int encodingMethod = getEncodingMethod(dataType);
-        int numberOfBlocks = getNumberOfBlocks(level, version);
-        int numberOfCorrectionBytes = getNumberOfCorrectionBytes(level, version);
+        int numberOfBlocks = getNumberOfBlocks(levelIndex, version);
+        int numberOfCorrectionBytes = getNumberOfCorrectionBytes(levelIndex, version);
         int[] generatingPolynomial = getGeneratingPolynomial(numberOfCorrectionBytes);
         return new ServiceInfo(
                 data,
                 dataType,
                 correctionLevel,
-                encodedDataLength,
+                dataLengthField,
                 version,
                 maxCapacity,
-                lengthOfDataLengthField,
                 encodingMethod,
                 numberOfBlocks,
                 numberOfCorrectionBytes,
                 generatingPolynomial
         );
     }
+
 
     private static int[] getCodeVersionAndMaxCapacity(int encodedDataLength, int levelIndex, DataType dataType) throws IllegalArgumentException {
         int[][] maxCapacityTable = { //[correctionLevel][version]
@@ -70,12 +74,12 @@ public record ServiceInfo(
         int maxCapacity = 0;
         int version = 0;
 
-        if (encodedDataLength > maxCapacityTable[levelIndex - 1][maxVersion - 1])
+        if (encodedDataLength > maxCapacityTable[levelIndex][maxVersion - 1])
             throw new IllegalArgumentException("Message too large or level too high. Try again.");
 
         for (int i = 0; i < maxVersion; i++) {
             if (encodedDataLength + getLengthOfDataLengthField(dataType, i + 1) + lengthOfEncodeMethod <= maxCapacityTable[levelIndex][i]){
-                maxCapacity = maxCapacityTable[levelIndex - 1][i];
+                maxCapacity = maxCapacityTable[levelIndex][i];
                 version = i + 1;
                 break;
             }
@@ -90,18 +94,25 @@ public record ServiceInfo(
                 int groups3 = len / 3;
                 int remainder = len % 3;
                 int[] bits = new int[]{0, 4, 7};
-                int dataBits = groups3 * 10 + bits[remainder];
-                yield dataBits;
+                yield groups3 * 10 + bits[remainder];
             }
             case ALPHANUMERIC -> {
                 int groups2 = len / 2;
                 int remainder = len % 2;
                 int[] bits = new int[]{0, 6};
-                int dataBits = groups2 * 11 + bits[remainder];
-                yield dataBits;
+                yield groups2 * 11 + bits[remainder];
             }
             case BYTE -> data.getBytes(StandardCharsets.UTF_8).length * 8;
         };
+    }
+
+    private static BitField getDataLengthField(String data, DataType dataType, int version, int encodedDataLength) {
+        int value = switch (dataType) {
+            case NUMERIC, ALPHANUMERIC -> data.length();
+            case BYTE -> encodedDataLength / 8;
+        };
+        int bitLength = getLengthOfDataLengthField(dataType, version);
+        return new BitField(value, bitLength);
     }
 
     private static int getLengthOfDataLengthField(DataType dataType, int version) {
@@ -113,7 +124,7 @@ public record ServiceInfo(
         int dataTypeIndex = switch (dataType) {
             case NUMERIC -> 0;
             case ALPHANUMERIC -> 1;
-            case BYTE -> 3;
+            case BYTE -> 2;
         };
         int versionIndex;
         if (version <= 9)
@@ -133,7 +144,7 @@ public record ServiceInfo(
         };
     }
 
-    private static int getNumberOfBlocks(int correctionLevel, int version) {
+    private static int getNumberOfBlocks(int levelIndex, int version) {
         int[][] numberOfBlocksTable = new int[][] {
                 {1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16,
                  17, 18, 19, 19, 20, 21, 22, 24, 25},
@@ -147,10 +158,10 @@ public record ServiceInfo(
                 {1, 1, 2, 4, 4, 4, 5, 6, 8, 8, 11, 11, 16, 16, 18, 16, 19, 21, 25, 25, 25, 34, 30, 32, 35, 37, 40, 42,
                  45, 48, 51, 54, 57, 60, 63, 66, 70, 74, 77, 81}
         };
-        return numberOfBlocksTable[correctionLevel][version - 1];
+        return numberOfBlocksTable[levelIndex][version - 1];
     }
 
-    private static int getNumberOfCorrectionBytes(int correctionLevel, int version) {
+    private static int getNumberOfCorrectionBytes(int levelIndex, int version) {
         int[][] numberOfCorrectionBytesTable = new int[][]{
                 {7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26, 28,
                  30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
@@ -164,7 +175,7 @@ public record ServiceInfo(
                 {17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28, 30, 24, 30, 30, 30, 30,
                  30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30}
         };
-        return numberOfCorrectionBytesTable[correctionLevel][version];
+        return numberOfCorrectionBytesTable[levelIndex][version - 1];
     }
 
     private static int[] getGeneratingPolynomial(int numberOfCorrectionBytes) throws IllegalArgumentException {

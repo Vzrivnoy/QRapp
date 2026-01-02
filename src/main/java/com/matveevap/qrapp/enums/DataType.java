@@ -1,11 +1,13 @@
-package com.matveevap.qrapp;
+package com.matveevap.qrapp.enums;
+
+import com.matveevap.qrapp.AlphaNumericCodec;
 
 public enum DataType {
     BYTE,
     NUMERIC,
     ALPHANUMERIC;
 
-    static DataType getTypeOfData(String data) {
+    public static DataType getTypeOfData(String data) {
         boolean hasNonDigit = false;
 
         for (char c : data.toCharArray()) {

@@ -1,8 +1,8 @@
-package com.matveevap.qrapp;
+package com.matveevap.qrapp.records;
 
 import java.util.List;
 
-public record BitData(byte[] bytes, int totalBits) {
+public record BitData(byte[] bytes) {
     public static BitData of(List<BitField> fields) {
         int totalBits = fields.stream().mapToInt(BitField::bitlength).sum();
         byte[] buffer = new byte[(totalBits + 7) / 8];
@@ -21,6 +21,6 @@ public record BitData(byte[] bytes, int totalBits) {
                 bitIndex++;
             }
         }
-        return new BitData(buffer, totalBits);
+        return new BitData(buffer);
     }
 }

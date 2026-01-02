@@ -1,4 +1,4 @@
-package com.matveevap.qrapp;
+package com.matveevap.qrapp.records;
 
 public record BitField(int value, int bitlength) {
     @Override

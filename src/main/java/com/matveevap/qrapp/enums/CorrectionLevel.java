@@ -1,17 +1,15 @@
-package com.matveevap.qrapp;
+package com.matveevap.qrapp.enums;
 
 public enum CorrectionLevel {
-    L("Low", 1),
-    M("Medium", 2),
-    Q("Quartile", 3),
-    H("High", 4);
+    L(0),
+    M(1),
+    Q(2),
+    H(3);
 
-    private final String name;
-    private final int levelCode;
+    private final int index;
 
-    CorrectionLevel(String name, int levelCode) {
-        this.name = name;
-        this.levelCode = levelCode;
+    CorrectionLevel(int levelIndex) {
+        this.index = levelIndex;
     }
 
     public static CorrectionLevel fromInt(int level) throws NumberFormatException{
@@ -25,7 +23,7 @@ public enum CorrectionLevel {
         };
     }
 
-    public static int toInt(CorrectionLevel level) {
-        return level.levelCode;
+    public static int getIndex(CorrectionLevel level) {
+        return level.index;
     }
 }

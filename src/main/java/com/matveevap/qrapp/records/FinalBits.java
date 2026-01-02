@@ -1,4 +1,4 @@
-package com.matveevap.qrapp;
+package com.matveevap.qrapp.records;
 
 import java.util.BitSet;
 

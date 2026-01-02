@@ -1,6 +1,6 @@
 package com.matveevap.qrapp;
 
-import java.util.Arrays;
+import com.matveevap.qrapp.records.ServiceInfo;
 
 import static java.lang.Math.max;
 
@@ -63,7 +63,7 @@ public class CorrectionBytes {
             else matrix[i] = 0;
         }
         for (int i = 0; i < chunk.length; i++) {
-            a = matrix[0];
+            a = matrix[0] & 0xFF;
             for (int j = 1; j < matrix.length; j++) {
                 matrix[j - 1] = matrix[j];
             }

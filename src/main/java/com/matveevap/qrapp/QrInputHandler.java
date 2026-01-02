@@ -1,5 +1,8 @@
 package com.matveevap.qrapp;
 
+import com.matveevap.qrapp.enums.CorrectionLevel;
+import com.matveevap.qrapp.records.ServiceInfo;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 
@@ -21,6 +24,7 @@ public class QrInputHandler {
                 }
                 if (data.isEmpty()) {
                     System.out.println("The text can`t be empty. Try again.");
+                    data = null;
                     continue;
                 }
             }
